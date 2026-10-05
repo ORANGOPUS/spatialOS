@@ -1,8 +1,8 @@
 <div align="center">
 
-# SpatialOS
+# thngOS
 
-**SpatialOS a free, open-source spatial operating system.**
+**thngOS a free, open-source spatial operating system.**
 
 Your windows, streams and games as panels in space, on a monitor, in a headset or on your wrist. Built on [Spatial Desktop](https://github.com/ORANGOPUS/spatial-desktop).
 
@@ -16,12 +16,12 @@ Your windows, streams and games as panels in space, on a monitor, in a headset o
 
 | File | What it is |
 | --- | --- |
-| `index.html` | The THNG site and prototype: Home, Scenes, Services, Devices, Install, Pricing and Spec, in one file. Open it in any browser. |
+| `index.html` | The thngOS site and prototype: Home, Scenes, Services, Devices, Install, Pricing and Spec, in one file. Open it in any browser. |
 | `SPEC.md` | The system and design spec: architecture, scenes, services, device support, install paths, design tokens. |
 
 ## The idea
 
-Every device you own is a **node**. THNG wires them into one **scene**, the space your **panels** live in. **Services** are built-in apps you open as panels.
+Every device you own is a **node**. thngOS wires them into one **scene**, the space your **panels** live in. **Services** are built-in apps you open as panels.
 
 - **Scenes**: Deep Space and Arena are available today. Workbench, Stage and Focus are planned.
 - **Services**: FORG *(description pending)*, thngPlay, Spatial Desktop and Rogue Protocol.
