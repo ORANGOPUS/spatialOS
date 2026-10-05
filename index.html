@@ -1,0 +1,1141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>THNG — The Human Node Generator</title>
+<meta name="description" content="THNG is a free, open-source spatial operating system built on Spatial Desktop. Your apps, streams and games as panels in space — on every screen you own.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* OD-LAYOUT-PRIMITIVES v1 — structure only: display, flex/grid, overflow, wrapping, ratio.
+   Put this @layer first; product CSS outside the layer always wins. */
+@layer od-layout {
+  :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+  /* containers */
+  .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+  .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+  .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+  .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+  .od-fill    { flex: 1 1 0; min-width: 0; }
+  .od-fixed   { flex: none; }
+  .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+  /* stacked information: each piece is its own line — never sibling inline spans */
+  .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+  :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+  .od-tile { display: grid; grid-template-rows: auto 1fr; }
+  :where(.od-tile) > :where(*) { display: block; }
+
+  /* media keeps its intrinsic ratio by default; never a distorted or cropped
+     cover by accident. height:auto lets the ratio win over an <img height="…">
+     attribute. Cropping to a uniform box is an explicit opt-in: set --od-ratio
+     AND add .od-media-cover together (per the core rule, only where a crop is
+     deliberate — tile thumbs, decorative fills — never on full-frame content). */
+  .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+  .od-media-cover { object-fit: cover; }
+
+  /* data text only — authored copy is rewritten to its budget instead */
+  .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .od-clamp-2 { -webkit-line-clamp: 2; }
+  .od-clamp-3 { -webkit-line-clamp: 3; }
+  .od-lines-2 { min-height: calc(2 * 1.4em); }   /* block-level reservation for a shared baseline */
+  .od-nowrap  { white-space: nowrap; }           /* 数字+单位 · 价格+起 · 日期+星期 */
+  .od-keep    { word-break: keep-all; overflow-wrap: anywhere; } /* CJK labels break at spaces / <wbr> first */
+
+  /* screen skeleton (optional): bars take their own space, the middle scrolls — no padding guessed for chrome */
+  .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+  .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+
+  /* horizontal rail: the next item peeks at the edge; trailing room survives overflow */
+  .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+             padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+  .od-rail::-webkit-scrollbar { display: none; }
+  :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+  :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+
+  .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+  .od-touch  { min-width: 44px; min-height: 44px; }
+}
+/* /OD-LAYOUT-PRIMITIVES v1 */
+
+/* ───────── THNG design tokens (thng-ds-1) ───────── */
+:root {
+  --bg: #070A12;
+  --surface: #0E1422;
+  --surface-2: #141C2E;
+  --line: #24304A;
+  --line-strong: #34446A;
+  --text: #E8ECF5;
+  --muted: #A3AEC4;
+  --accent: #5EE6D0;      /* cyan — primary signal */
+  --accent-ink: #04201B;  /* text on cyan */
+  --violet: #A58BFF;      /* secondary, sparingly */
+  --warn: #FFC46B;
+
+  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --fs-xs: 14px; --fs-sm: 16px; --fs-md: 18px; --fs-lg: 24px; --fs-xl: 32px; --fs-2xl: 48px;
+  --fs-hero: clamp(48px, 9vw, 96px);
+
+  --s1: 4px; --s2: 8px; --s3: 16px; --s4: 24px; --s5: 32px; --s6: 48px; --s7: 64px; --s8: 96px;
+  --r-sm: 6px; --r-md: 12px;
+  --maxw: 1200px;
+  --header-h: 64px;
+
+  --dur-fast: 150ms; --dur: 240ms; --dur-slow: 400ms;
+  --ease-out: cubic-bezier(.2,.7,.2,1); --ease-in: cubic-bezier(.4,0,1,1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: calc(var(--header-h) + var(--s3)); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 400 var(--fs-sm)/1.6 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { color: var(--text); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-sm); }
+.wrap { max-width: var(--maxw); margin: 0 auto; padding-inline: var(--s4); }
+@media (max-width: 480px) { .wrap { padding-inline: var(--s3); } }
+.skip { position: absolute; left: var(--s3); top: -64px; background: var(--accent); color: var(--accent-ink); padding: var(--s2) var(--s3); border-radius: var(--r-sm); z-index: 50; }
+.skip:focus { top: var(--s3); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* type */
+h1, h2, h3 { margin: 0; font-weight: 400; }
+.display { font-family: var(--font-display); font-size: var(--fs-hero); line-height: 1; letter-spacing: -0.01em; }
+.display em { font-style: italic; color: var(--accent); }
+.h2 { font-family: var(--font-display); font-size: clamp(36px, 5vw, var(--fs-2xl)); line-height: 1.1; }
+.h3 { font: 600 var(--fs-md)/1.4 var(--font-body); }
+.lede { font-size: var(--fs-md); color: var(--muted); max-width: 62ch; margin: 0; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font: 500 var(--fs-xs)/1.4 var(--font-mono); color: var(--accent); letter-spacing: .08em; text-transform: uppercase; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--muted); }
+
+/* header */
+.site-head {
+  position: sticky; top: 0; z-index: 20; height: var(--header-h);
+  background: rgba(7,10,18,.86); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.site-head .wrap { height: 100%; }
+.brand { color: var(--text); text-decoration: none; font: 600 var(--fs-md)/1 var(--font-body); letter-spacing: .14em; }
+.brand:hover { color: var(--text); }
+.brand svg { color: var(--accent); }
+.nav { display: flex; gap: var(--s1); list-style: none; margin: 0; padding: 0; }
+.nav a {
+  display: flex; align-items: center; min-height: 44px; padding: 0 var(--s3);
+  color: var(--muted); text-decoration: none; font-size: var(--fs-xs); font-weight: 500; border-radius: var(--r-sm);
+  transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) { .nav a:hover { color: var(--text); background: var(--surface-2); } }
+.nav a[aria-current="page"] { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
+.menu-btn { display: none; }
+.head-cta { margin-left: var(--s2); }
+@media (max-width: 1024px) {
+  .menu-btn { display: inline-flex; }
+  .head-cta { display: none; }
+  .nav {
+    position: fixed; inset: var(--header-h) 0 auto 0; flex-direction: column; gap: 0;
+    background: var(--bg); border-bottom: 1px solid var(--line); padding: var(--s2) var(--s3) var(--s3);
+    opacity: 0; transform: translateY(-8px); pointer-events: none; visibility: hidden;
+    transition: opacity var(--dur-fast) var(--ease-in), transform var(--dur-fast) var(--ease-in), visibility 0s linear var(--dur-fast);
+  }
+  .nav.open { opacity: 1; transform: none; pointer-events: auto; visibility: visible; transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out); }
+  .nav a { font-size: var(--fs-sm); }
+  .nav a[aria-current="page"] { box-shadow: inset 2px 0 0 var(--accent); }
+}
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  min-height: 44px; padding: 0 var(--s4); border-radius: var(--r-sm); border: 1px solid var(--line-strong);
+  background: transparent; color: var(--text); font: 500 var(--fs-sm)/1 var(--font-body); text-decoration: none; cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.btn:active { transform: translateY(1px); }
+@media (hover: hover) { .btn:hover { border-color: var(--accent); color: var(--text); background: var(--surface-2); } }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+@media (hover: hover) { .btn.primary:hover { background: #8AF0E0; border-color: #8AF0E0; color: var(--accent-ink); } }
+.btn.icon { padding: 0; width: 44px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+/* routing */
+main { min-height: calc(100vh - var(--header-h)); }
+.page { display: none; padding-block: var(--s7) var(--s8); }
+.page.active { display: block; animation: enter var(--dur) var(--ease-out); }
+@keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.page-head { display: grid; gap: var(--s3); margin-bottom: var(--s6); }
+
+/* status badges — shape + text, never colour alone */
+.status { display: inline-flex; align-items: center; gap: var(--s2); font: 500 var(--fs-xs)/1.2 var(--font-mono); white-space: nowrap; padding: var(--s1) var(--s2); border-radius: var(--r-sm); border: 1px solid var(--line); }
+.status::before { content: ""; width: 8px; height: 8px; flex: none; }
+.status.avail { color: var(--accent); border-color: rgba(94,230,208,.35); }
+.status.avail::before { background: var(--accent); border-radius: 50%; }
+.status.planned { color: var(--violet); border-color: rgba(165,139,255,.35); }
+.status.planned::before { border: 1.5px solid var(--violet); border-radius: 50%; }
+.status.community { color: var(--warn); border-color: rgba(255,196,107,.35); }
+.status.community::before { background: var(--warn); transform: rotate(45deg); width: 7px; height: 7px; }
+.status.pending { color: var(--muted); }
+.status.pending::before { border: 1.5px dashed var(--muted); border-radius: 2px; }
+
+/* panels */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); }
+.panel.pad-lg { padding: var(--s5); }
+.hair { border: 0; border-top: 1px solid var(--line); margin: var(--s6) 0; }
+
+/* ── HERO / spatial figure ── */
+.hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: var(--s6); align-items: center; }
+@media (max-width: 1024px) { .hero { grid-template-columns: 1fr; } }
+.hero-copy { display: grid; gap: var(--s4); }
+.hero-ctas { display: flex; flex-wrap: wrap; gap: var(--s3); }
+.space {
+  position: relative; aspect-ratio: 5 / 4; border-radius: var(--r-md); overflow: hidden;
+  border: 1px solid var(--line); background:
+    radial-gradient(60% 50% at 50% 42%, rgba(94,230,208,.10), transparent 70%),
+    radial-gradient(40% 35% at 78% 20%, rgba(165,139,255,.10), transparent 70%),
+    var(--bg);
+  perspective: 900px;
+}
+.space .stars { position: absolute; inset: 0; background-image:
+  radial-gradient(1px 1px at 12% 18%, #cfd8ea 50%, transparent 51%),
+  radial-gradient(1px 1px at 32% 72%, #cfd8ea 50%, transparent 51%),
+  radial-gradient(1px 1px at 58% 12%, #cfd8ea 50%, transparent 51%),
+  radial-gradient(1.5px 1.5px at 84% 64%, #cfd8ea 50%, transparent 51%),
+  radial-gradient(1px 1px at 70% 88%, #cfd8ea 50%, transparent 51%),
+  radial-gradient(1px 1px at 92% 30%, #cfd8ea 50%, transparent 51%),
+  radial-gradient(1px 1px at 6% 56%, #cfd8ea 50%, transparent 51%),
+  radial-gradient(1.5px 1.5px at 44% 40%, #cfd8ea 50%, transparent 51%);
+  opacity: .55; }
+.space .floor { position: absolute; left: 50%; bottom: -18%; width: 130%; aspect-ratio: 1; transform: translateX(-50%) rotateX(72deg);
+  border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0 22px, rgba(94,230,208,.22) 22px 23px),
+  conic-gradient(from 0deg, transparent 0 344deg, rgba(94,230,208,.35) 360deg); }
+.space .core { position: absolute; left: 50%; top: 40%; width: 18%; aspect-ratio: 1; transform: translate(-50%,-50%); border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #c9fff5, var(--accent) 35%, rgba(94,230,208,.0) 72%);
+  box-shadow: 0 0 60px rgba(94,230,208,.35); }
+.space .ring { position: absolute; left: 50%; top: 40%; aspect-ratio: 1; border-radius: 50%; border: 1px dashed rgba(94,230,208,.45); transform: translate(-50%,-50%) rotateX(70deg); }
+.space .ring.r1 { width: 32%; } .space .ring.r2 { width: 46%; border-color: rgba(165,139,255,.4); }
+.pnl { position: absolute; top: 24%; width: 26%; aspect-ratio: 16 / 10; border: 1px solid rgba(94,230,208,.5); border-radius: 6px;
+  background: rgba(14,20,34,.88); padding: 6px; display: grid; grid-template-rows: auto 1fr; gap: 4px; }
+.pnl b { display: block; font: 500 10px/1.2 var(--font-mono); color: var(--accent); letter-spacing: .06em; }
+.pnl i { display: block; border-radius: 3px; background:
+  linear-gradient(var(--line) 0 0) 0 0 / 70% 3px no-repeat,
+  linear-gradient(var(--line) 0 0) 0 8px / 50% 3px no-repeat,
+  linear-gradient(var(--line) 0 0) 0 16px / 60% 3px no-repeat, var(--surface-2); }
+.pnl.l { left: 4%; transform: rotateY(32deg); } .pnl.c { left: 37%; top: 8%; transform: translateZ(-40px); } .pnl.r { right: 4%; transform: rotateY(-32deg); }
+.space figcaption { position: absolute; left: var(--s3); bottom: var(--s3); font: 500 12px/1.3 var(--font-mono); color: var(--muted); background: rgba(7,10,18,.8); padding: var(--s1) var(--s2); border-radius: var(--r-sm); }
+@media (prefers-reduced-motion: no-preference) {
+  .space .core { animation: pulse 4s ease-in-out infinite; }
+  .space .floor { animation: sweep 9s linear infinite; }
+}
+@keyframes pulse { 50% { box-shadow: 0 0 90px rgba(94,230,208,.5); } }
+@keyframes sweep { to { transform: translateX(-50%) rotateX(72deg) rotate(360deg); } }
+
+/* strip of truths */
+.facts { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: var(--s3); margin-top: var(--s7); }
+@media (max-width: 768px) { .facts { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+.fact { border-top: 1px solid var(--line-strong); padding-top: var(--s3); }
+.fact strong { font: 400 var(--fs-xl)/1.1 var(--font-display); }
+.fact span { color: var(--muted); font-size: var(--fs-xs); }
+
+/* layers diagram */
+.layers { display: grid; gap: var(--s2); }
+.layer { display: grid; grid-template-columns: 140px 1fr; gap: var(--s4); align-items: baseline; padding: var(--s3) var(--s4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.layer:nth-child(1) { margin-inline: 0; } .layer:nth-child(2) { margin-inline: var(--s3); } .layer:nth-child(3) { margin-inline: var(--s5); } .layer:nth-child(4) { margin-inline: var(--s6); }
+@media (max-width: 768px) { .layer { grid-template-columns: 1fr; gap: var(--s1); } .layer:nth-child(n) { margin-inline: 0; } }
+.layer .mono { color: var(--accent); font-size: var(--fs-xs); }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s6); align-items: start; }
+@media (max-width: 1024px) { .two { grid-template-columns: 1fr; } }
+.section { margin-top: var(--s8); display: grid; gap: var(--s5); }
+
+/* ── SCENES ── */
+.tabs { display: flex; gap: var(--s2); overflow-x: auto; scrollbar-width: none; padding-bottom: var(--s1); }
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: none; min-height: 44px; padding: 0 var(--s4); border-radius: var(--r-sm); border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: 500 var(--fs-sm)/1 var(--font-body); cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) { .tab:hover { color: var(--text); border-color: var(--line-strong); } }
+.tab[aria-selected="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.scene { display: grid; grid-template-columns: 1.2fr 1fr; gap: var(--s5); margin-top: var(--s4); }
+@media (max-width: 1024px) { .scene { grid-template-columns: 1fr; } }
+.scene[hidden] { display: none; }
+.scene .space { aspect-ratio: 16 / 10; }
+.scene-copy { display: grid; gap: var(--s3); align-content: start; }
+.kv { display: grid; gap: var(--s2); margin: 0; }
+.kv div { display: grid; grid-template-columns: 120px 1fr; gap: var(--s3); padding-block: var(--s2); border-bottom: 1px solid var(--line); }
+.kv dt { color: var(--muted); font-size: var(--fs-xs); font-family: var(--font-mono); padding-top: 2px; }
+.kv dd { margin: 0; }
+kbd { font: 500 13px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); color: var(--text); }
+/* scene variants */
+.space.workbench .pnl.c { width: 40%; left: 30%; top: 12%; }
+.space.stage .pnl.c { width: 52%; left: 24%; top: 10%; border-color: rgba(165,139,255,.6); }
+.space.stage .pnl.c b { color: var(--violet); }
+.space.stage .pnl.l, .space.stage .pnl.r { width: 18%; top: 34%; }
+.space.arena .core { background: radial-gradient(circle at 40% 35%, #fff1d6, var(--warn) 35%, rgba(255,196,107,0) 72%); box-shadow: 0 0 60px rgba(255,196,107,.35); }
+.space.arena .ring.r1 { border-color: rgba(255,196,107,.5); }
+.space.focus .pnl.l, .space.focus .pnl.r { display: none; }
+.space.focus .pnl.c { width: 46%; left: 27%; top: 20%; transform: none; }
+.bot { position: absolute; width: 14px; height: 14px; border: 1.5px solid var(--warn); transform: rotate(45deg); }
+
+/* ── SERVICES ── */
+.svc-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--s4); }
+@media (max-width: 768px) { .svc-grid { grid-template-columns: 1fr; } }
+.svc { display: grid; gap: var(--s3); align-content: start; }
+.svc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s3); }
+.svc-name { font: 400 var(--fs-xl)/1.1 var(--font-display); }
+.svc ul { margin: 0; padding-left: var(--s4); color: var(--muted); display: grid; gap: var(--s1); }
+.svc .links { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s2); }
+.svc.pending-card { border-style: dashed; }
+
+/* ── DEVICES ── */
+.filters { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s4); }
+.chip { min-height: 44px; padding: 0 var(--s3); border-radius: var(--r-sm); border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; font: 500 var(--fs-xs)/1 var(--font-body); }
+.chip[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--surface-2); }
+@media (hover: hover) { .chip:hover { color: var(--text); } }
+.dev-table { width: 100%; border-collapse: collapse; }
+.dev-table th, .dev-table td { text-align: left; padding: var(--s3); border-bottom: 1px solid var(--line); vertical-align: top; }
+.dev-table th { font: 500 var(--fs-xs)/1.4 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.dev-table td:first-child { font-weight: 600; }
+.dev-table td.note { color: var(--muted); }
+.dev-group td { padding-top: var(--s5); color: var(--accent); font: 500 var(--fs-xs)/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; border-bottom-color: var(--line-strong); }
+@media (max-width: 768px) {
+  .dev-table thead { display: none; }
+  .dev-table tr:not(.dev-group) { display: grid; gap: var(--s2); padding: var(--s3) 0; border-bottom: 1px solid var(--line); }
+  .dev-table td { display: block; border: 0; padding: 0; }
+  .dev-group td { padding-top: var(--s5); border-bottom: 1px solid var(--line-strong); padding-bottom: var(--s2); }
+}
+.empty { padding: var(--s5); text-align: center; color: var(--muted); border: 1px dashed var(--line-strong); border-radius: var(--r-md); }
+
+/* ── INSTALL ── */
+.wizard { display: grid; grid-template-columns: 280px 1fr; gap: var(--s5); }
+@media (max-width: 1024px) { .wizard { grid-template-columns: 1fr; } }
+.steps-nav { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); align-content: start; counter-reset: s; }
+.steps-nav li { display: grid; grid-template-columns: 32px 1fr; gap: var(--s3); align-items: center; padding: var(--s3); border-radius: var(--r-sm); color: var(--muted); }
+.steps-nav li::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-strong); font: 500 var(--fs-xs)/1 var(--font-mono); }
+.steps-nav li[aria-current="step"] { color: var(--text); background: var(--surface); }
+.steps-nav li[aria-current="step"]::before { border-color: var(--accent); color: var(--accent); }
+.steps-nav li.done::before { content: "✓"; background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+@media (max-width: 1024px) { .steps-nav { grid-template-columns: repeat(3, minmax(0,1fr)); } .steps-nav li { grid-template-columns: 1fr; justify-items: start; gap: var(--s2); padding: var(--s2); font-size: var(--fs-xs); } }
+.opts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s3); border: 0; padding: 0; margin: 0; }
+.opts legend { font: 400 var(--fs-lg)/1.2 var(--font-display); margin-bottom: var(--s4); padding: 0; }
+.opt { position: relative; }
+.opt input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.opt label { display: grid; gap: var(--s2); height: 100%; padding: var(--s4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out); }
+.opt label strong { font-weight: 600; }
+.opt label span { color: var(--muted); font-size: var(--fs-xs); }
+@media (hover: hover) { .opt label:hover { border-color: var(--line-strong); } }
+.opt input:checked + label { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.opt input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 3px; }
+.opt input:disabled + label { opacity: .45; cursor: not-allowed; }
+.wiz-foot { display: flex; justify-content: space-between; gap: var(--s3); margin-top: var(--s5); flex-wrap: wrap; }
+.err { color: var(--warn); font-size: var(--fs-xs); margin-top: var(--s3); min-height: 1.6em; }
+.code { position: relative; background: #05070D; border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); padding-right: calc(44px + var(--s5)); font: 400 var(--fs-xs)/1.7 var(--font-mono); color: var(--text); overflow-x: auto; white-space: pre; }
+.code .copy { position: absolute; top: var(--s2); right: var(--s2); }
+.code-wrap { display: grid; gap: var(--s3); }
+.result ol { margin: 0; padding-left: var(--s4); display: grid; gap: var(--s2); }
+.note-box { padding: var(--s3) var(--s4); border: 1px solid rgba(255,196,107,.35); border-radius: var(--r-sm); color: var(--text); background: rgba(255,196,107,.06); }
+.note-box strong { color: var(--warn); }
+
+/* ── PRICING ── */
+.tiers { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--s4); }
+@media (max-width: 1024px) { .tiers { grid-template-columns: 1fr; } }
+.tier { display: grid; gap: var(--s3); grid-template-rows: auto auto auto 1fr auto; }
+.price { font: 400 var(--fs-2xl)/1 var(--font-display); }
+.price small { font: 500 var(--fs-xs)/1 var(--font-mono); color: var(--muted); margin-left: var(--s2); }
+.tier ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.tier li { display: grid; grid-template-columns: 20px 1fr; gap: var(--s2); color: var(--muted); }
+.tier li svg { color: var(--accent); margin-top: 4px; }
+.support { margin-top: var(--s6); display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--s5); align-items: center; }
+@media (max-width: 1024px) { .support { grid-template-columns: 1fr; } }
+.support .acts { display: flex; flex-wrap: wrap; gap: var(--s3); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { cursor: pointer; padding: var(--s3) 0; min-height: 44px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: var(--s3); }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-family: var(--font-mono); color: var(--accent); }
+.faq details[open] summary::after { content: "–"; }
+.faq details p { padding-bottom: var(--s3); color: var(--muted); }
+
+/* ── SPEC ── */
+.spec-grid { display: grid; grid-template-columns: 220px 1fr; gap: var(--s6); }
+@media (max-width: 1024px) { .spec-grid { grid-template-columns: 1fr; } }
+.toc { position: sticky; top: calc(var(--header-h) + var(--s4)); align-self: start; display: grid; gap: var(--s1); }
+.toc a { color: var(--muted); text-decoration: none; padding: var(--s2) 0; font-size: var(--fs-xs); min-height: 44px; display: flex; align-items: center; }
+@media (hover: hover) { .toc a:hover { color: var(--text); } }
+@media (max-width: 1024px) { .toc { position: static; display: flex; flex-wrap: wrap; gap: 0 var(--s4); } }
+.spec-body { display: grid; gap: var(--s7); }
+.spec-body section { display: grid; gap: var(--s3); }
+.spec-body h2 { font: 400 var(--fs-xl)/1.15 var(--font-display); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: var(--s3); }
+.sw { display: grid; gap: var(--s2); }
+.sw i { display: block; aspect-ratio: 3 / 2; border-radius: var(--r-sm); border: 1px solid var(--line-strong); }
+.sw b { font: 500 var(--fs-xs)/1.3 var(--font-mono); }
+.sw span { font: 400 12px/1.3 var(--font-mono); color: var(--muted); }
+.typespec { display: grid; gap: var(--s3); }
+.typespec div { display: grid; grid-template-columns: 120px 1fr; gap: var(--s3); align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: var(--s3); }
+@media (max-width: 480px) { .typespec div, .kv div { grid-template-columns: 1fr; gap: var(--s1); } }
+.typespec .mono { color: var(--muted); font-size: 12px; }
+table.spec { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+table.spec th, table.spec td { text-align: left; padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); vertical-align: top; }
+table.spec th { color: var(--muted); font-family: var(--font-mono); font-weight: 500; }
+.tbl-scroll { overflow-x: auto; }
+
+/* footer */
+.site-foot { border-top: 1px solid var(--line); padding-block: var(--s6); color: var(--muted); font-size: var(--fs-xs); }
+.site-foot .wrap { display: flex; flex-wrap: wrap; gap: var(--s4); justify-content: space-between; }
+.site-foot nav { display: flex; flex-wrap: wrap; gap: var(--s4); }
+.site-foot a { color: var(--muted); }
+@media (hover: hover) { .site-foot a:hover { color: var(--text); } }
+
+/* toast */
+.toast { position: fixed; left: 50%; bottom: var(--s5); transform: translate(-50%, 16px); opacity: 0; pointer-events: none;
+  background: var(--surface-2); border: 1px solid var(--accent); color: var(--text); padding: var(--s3) var(--s4); border-radius: var(--r-sm); font-size: var(--fs-xs); z-index: 40;
+  transition: opacity var(--dur-fast) var(--ease-in), transform var(--dur-fast) var(--ease-in); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-node" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="6" r="1.6"/><circle cx="20" cy="6" r="1.6"/><circle cx="12" cy="21" r="1.6"/><path d="M5.4 6.8 9.4 10.4M18.6 6.8 14.6 10.4M12 15v4.4"/></g></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></g></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 24 24"><path d="M9 19c-4 1.3-4-2-6-2.5m12 4.5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12 12 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+</svg>
+
+<header class="site-head">
+  <div class="wrap od-row" style="--od-gap: var(--s3)">
+    <a class="brand od-row od-fixed" href="#/" aria-label="THNG home">
+      <svg width="24" height="24" aria-hidden="true"><use href="#i-node"/></svg>
+      THNG
+    </a>
+    <span class="od-fill"></span>
+    <button class="btn icon menu-btn" id="menuBtn" aria-expanded="false" aria-controls="nav" aria-label="Open menu">
+      <svg width="20" height="20" aria-hidden="true"><use href="#i-menu"/></svg>
+    </button>
+    <nav aria-label="Primary">
+      <ul class="nav" id="nav">
+        <li><a href="#/">Home</a></li>
+        <li><a href="#/scenes">Scenes</a></li>
+        <li><a href="#/services">Services</a></li>
+        <li><a href="#/devices">Devices</a></li>
+        <li><a href="#/install">Install</a></li>
+        <li><a href="#/pricing">Pricing</a></li>
+        <li><a href="#/spec">Spec</a></li>
+      </ul>
+    </nav>
+    <a class="btn primary head-cta od-fixed" href="#/install">Get THNG</a>
+  </div>
+</header>
+
+<main id="main" tabindex="-1">
+
+<!-- ═════════ HOME ═════════ -->
+<section class="page" data-route="/" aria-labelledby="h-home">
+  <div class="wrap">
+    <div class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">The Human Node Generator · free &amp; open-source</span>
+        <h1 class="display" id="h-home">Your computer,<br>turned into <em>space</em>.</h1>
+        <p class="lede">THNG is a spatial operating system. Your windows, streams and games float as panels around you, on a monitor, in a headset or on your wrist. It's built in the open on Spatial Desktop.</p>
+        <div class="hero-ctas">
+          <a class="btn primary" href="#/install">Install THNG <svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          <a class="btn" href="https://spatialdesktop.thng.my/app/" rel="noopener">Try it in your browser</a>
+        </div>
+        <p class="muted" style="font-size:var(--fs-xs)">MIT licensed. No accounts, no paywall.</p>
+      </div>
+      <figure class="space" style="margin:0" aria-label="Illustration: three app panels arranged in an arc around a glowing neural core above a holographic platform">
+        <div class="stars"></div>
+        <div class="floor"></div>
+        <div class="ring r1"></div><div class="ring r2"></div>
+        <div class="core"></div>
+        <div class="pnl l"><b>HYPRLAND</b><i></i></div>
+        <div class="pnl c"><b>THNGPLAY · LIVE</b><i></i></div>
+        <div class="pnl r"><b>WINDOWS VM</b><i></i></div>
+        <figcaption>Deep Space scene · Arc layout</figcaption>
+      </figure>
+    </div>
+
+    <div class="facts">
+      <div class="fact od-stat"><strong>MIT</strong><span>Free to use, fork and ship</span></div>
+      <div class="fact od-stat"><strong>WebXR</strong><span>Real VR in headset browsers</span></div>
+      <div class="fact od-stat"><strong>5 scenes</strong><span>Spaces you switch between</span></div>
+      <div class="fact od-stat"><strong>4 services</strong><span>Built in, all free</span></div>
+    </div>
+
+    <div class="section two">
+      <div class="od-stack" style="--od-gap: var(--s3)">
+        <span class="eyebrow">What's a node?</span>
+        <h2 class="h2">Every device you own is a node. THNG wires them into one space.</h2>
+      </div>
+      <div class="od-stack" style="--od-gap: var(--s4)">
+        <p class="lede">Your laptop renders the scene, your headset steps into it and your watch nudges a panel along. Each device runs the THNG node, which offers whatever that device can actually do and nothing it can't.</p>
+        <div class="layers" aria-label="THNG system layers">
+          <div class="layer"><span class="mono">01 · Node</span><span>The runtime on each device. It detects the screen, input, capture and XR the device supports.</span></div>
+          <div class="layer"><span class="mono">02 · Scene</span><span>The space you're in: sky, platform, lighting, sound and layout rules.</span></div>
+          <div class="layer"><span class="mono">03 · Panel</span><span>Anything with pixels, such as a window, a monitor, a VM, a stream or a widget.</span></div>
+          <div class="layer"><span class="mono">04 · Service</span><span>Built-in apps: FORG, thngPlay, Spatial Desktop and Rogue Protocol.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="od-row" style="justify-content:space-between;flex-wrap:wrap;--od-gap:var(--s3)">
+        <h2 class="h2">Start where you are</h2>
+        <a href="#/devices">See every device <svg width="16" height="16" aria-hidden="true" style="vertical-align:-3px"><use href="#i-arrow"/></svg></a>
+      </div>
+      <div class="svc-grid">
+        <a class="panel svc" href="#/install" style="color:inherit;text-decoration:none">
+          <span class="status avail">Available today</span>
+          <span class="h3">Linux with Hyprland</span>
+          <p class="muted">The full experience. Hyprland itself becomes a panel, along with your Windows VM and app launching.</p>
+        </a>
+        <a class="panel svc" href="#/install" style="color:inherit;text-decoration:none">
+          <span class="status avail">Available today</span>
+          <span class="h3">Windows · macOS · Android · Web</span>
+          <p class="muted">The whole scene, plus window panels where the OS allows screen capture.</p>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ SCENES ═════════ -->
+<section class="page" data-route="/scenes" aria-labelledby="h-scenes">
+  <div class="wrap">
+    <div class="page-head">
+      <span class="eyebrow">Scenes</span>
+      <h1 class="h2" id="h-scenes">One OS, many spaces.</h1>
+      <p class="lede">A scene is the room your panels live in. Switch between them with <kbd>S</kbd>. Your panels come with you, and each scene re-lays them out for what you're doing.</p>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Scenes">
+      <button class="tab" role="tab" id="t-deep" aria-controls="p-deep" aria-selected="true">Deep Space</button>
+      <button class="tab" role="tab" id="t-work" aria-controls="p-work" aria-selected="false" tabindex="-1">Workbench</button>
+      <button class="tab" role="tab" id="t-stage" aria-controls="p-stage" aria-selected="false" tabindex="-1">Stage</button>
+      <button class="tab" role="tab" id="t-arena" aria-controls="p-arena" aria-selected="false" tabindex="-1">Arena</button>
+      <button class="tab" role="tab" id="t-focus" aria-controls="p-focus" aria-selected="false" tabindex="-1">Focus</button>
+    </div>
+
+    <div class="scene" role="tabpanel" id="p-deep" aria-labelledby="t-deep">
+      <figure class="space" style="margin:0" aria-label="Deep Space: three panels in an arc around the neural core">
+        <div class="stars"></div><div class="floor"></div><div class="ring r1"></div><div class="ring r2"></div><div class="core"></div>
+        <div class="pnl l"><b>TERMINAL</b><i></i></div><div class="pnl c"><b>HYPRLAND</b><i></i></div><div class="pnl r"><b>BROWSER</b><i></i></div>
+      </figure>
+      <div class="scene-copy">
+        <span class="status avail">Available today</span>
+        <h2 class="h2">Deep Space</h2>
+        <p class="muted">The home scene from Spatial Desktop: a nebula sky, a living neural core, a network of firing neurons and a holographic platform. It's all generated in code and drawn in a handful of draw calls.</p>
+        <dl class="kv">
+          <div><dt>Layouts</dt><dd>Arc, grid, stack. Cycle with <kbd>L</kbd></dd></div>
+          <div><dt>Sound</dt><dd>Ambient generative music, optional</dd></div>
+          <div><dt>Best for</dt><dd>Everyday desktop work</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="scene" role="tabpanel" id="p-work" aria-labelledby="t-work" hidden>
+      <figure class="space workbench" style="margin:0" aria-label="Workbench: one large central panel with two side panels">
+        <div class="stars"></div><div class="floor"></div><div class="ring r1"></div><div class="core" style="top:84%;width:10%"></div>
+        <div class="pnl l"><b>DOCS</b><i></i></div><div class="pnl c"><b>NEOVIM</b><i></i></div><div class="pnl r"><b>WINDOWS VM</b><i></i></div>
+      </figure>
+      <div class="scene-copy">
+        <span class="status planned">Planned</span>
+        <h2 class="h2">Workbench</h2>
+        <p class="muted">A quieter space for long sessions. The core drops below the horizon, the sky dims and a big main panel sits at reading distance with references on either side.</p>
+        <dl class="kv">
+          <div><dt>Layouts</dt><dd>Main + side panels</dd></div>
+          <div><dt>Sound</dt><dd>Muted by default</dd></div>
+          <div><dt>Best for</dt><dd>Code, writing, VMs</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="scene" role="tabpanel" id="p-stage" aria-labelledby="t-stage" hidden>
+      <figure class="space stage" style="margin:0" aria-label="Stage: a wide live stream panel with chat and controls either side">
+        <div class="stars"></div><div class="floor"></div><div class="ring r2"></div><div class="core" style="top:86%;width:12%"></div>
+        <div class="pnl l"><b>CHAT</b><i></i></div><div class="pnl c"><b>THNGPLAY · LIVE</b><i></i></div><div class="pnl r"><b>SCENES</b><i></i></div>
+      </figure>
+      <div class="scene-copy">
+        <span class="status planned">Planned</span>
+        <h2 class="h2">Stage</h2>
+        <p class="muted">Built for thngPlay. Watch on a cinema-sized panel, or go live and keep your chat and stream controls within reach.</p>
+        <dl class="kv">
+          <div><dt>Layouts</dt><dd>Theatre, broadcaster</dd></div>
+          <div><dt>Sound</dt><dd>Spatial audio from the stream</dd></div>
+          <div><dt>Best for</dt><dd>Watching and streaming</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="scene" role="tabpanel" id="p-arena" aria-labelledby="t-arena" hidden>
+      <figure class="space arena" style="margin:0" aria-label="Arena: rogue bots circling the platform">
+        <div class="stars"></div><div class="floor"></div><div class="ring r1"></div><div class="core"></div>
+        <span class="bot" style="left:18%;top:22%"></span><span class="bot" style="left:72%;top:18%"></span><span class="bot" style="left:84%;top:46%"></span><span class="bot" style="left:30%;top:52%"></span>
+      </figure>
+      <div class="scene-copy">
+        <span class="status avail">Available today</span>
+        <h2 class="h2">Arena</h2>
+        <p class="muted">The platform becomes the battlefield for Rogue Protocol, a wave shooter built in. Every cleared wave jumps you to a new sector of the universe.</p>
+        <dl class="kv">
+          <div><dt>Enter</dt><dd><kbd>G</kbd> or the Play button</dd></div>
+          <div><dt>Leave</dt><dd><kbd>Esc</kbd> on desktop, B/Y in VR</dd></div>
+          <div><dt>Input</dt><dd>Mouse, touch or VR controllers</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <div class="scene" role="tabpanel" id="p-focus" aria-labelledby="t-focus" hidden>
+      <figure class="space focus" style="margin:0" aria-label="Focus: a single panel and an empty sky">
+        <div class="stars"></div><div class="floor" style="opacity:.4"></div>
+        <div class="pnl c"><b>ONE THING</b><i></i></div>
+      </figure>
+      <div class="scene-copy">
+        <span class="status planned">Planned</span>
+        <h2 class="h2">Focus</h2>
+        <p class="muted">One panel and nothing else. Notifications wait, the neurons rest and the music stops. Your watch can bring the rest back with one tap.</p>
+        <dl class="kv">
+          <div><dt>Layouts</dt><dd>Single panel</dd></div>
+          <div><dt>Sound</dt><dd>Off</dd></div>
+          <div><dt>Best for</dt><dd>Deep work, reading</dd></div>
+        </dl>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ SERVICES ═════════ -->
+<section class="page" data-route="/services" aria-labelledby="h-services">
+  <div class="wrap">
+    <div class="page-head">
+      <span class="eyebrow">Services</span>
+      <h1 class="h2" id="h-services">Built-in, free and open.</h1>
+      <p class="lede">These ship with THNG and open as panels in any scene. Every one is free.</p>
+    </div>
+    <div class="svc-grid">
+      <article class="panel pad-lg svc pending-card" aria-labelledby="s-forg">
+        <div class="svc-top"><h2 class="svc-name" id="s-forg">FORG</h2><span class="status pending">Description pending</span></div>
+        <p class="muted">FORG ships with THNG. Its description is waiting on the maintainers, so this card stays empty until they write it.</p>
+        <div class="links"><a href="https://github.com/ORANGOPUS/thng/issues" rel="noopener">Help describe FORG</a></div>
+      </article>
+
+      <article class="panel pad-lg svc" aria-labelledby="s-play">
+        <div class="svc-top"><h2 class="svc-name" id="s-play">thngPlay</h2><span class="status avail">Live at thng.my</span></div>
+        <p>Interactive live streaming with sub-second latency over FTL.</p>
+        <ul><li>Watch streams as a panel, or full-size in the Stage scene</li><li>Go live from inside your space</li><li>Recommended channels and categories</li></ul>
+        <div class="links"><a href="https://thng.my" rel="noopener">Open thng.my</a></div>
+      </article>
+
+      <article class="panel pad-lg svc" aria-labelledby="s-sd">
+        <div class="svc-top"><h2 class="svc-name" id="s-sd">Spatial Desktop</h2><span class="status avail">Available today</span></div>
+        <p>The core THNG grows from. Your Hyprland desktop, your apps and your Windows VM as panels in WebXR, built on IWSDK.</p>
+        <ul><li>Hyprland as a panel, with your real mouse and keyboard</li><li>Any window, region or monitor as a panel</li><li>3D launcher dock, and a GPU-adaptive render scale</li></ul>
+        <div class="links"><a href="https://spatialdesktop.thng.my/" rel="noopener">Download</a><a href="https://github.com/ORANGOPUS/spatial-desktop" rel="noopener">Source</a></div>
+      </article>
+
+      <article class="panel pad-lg svc" aria-labelledby="s-rp">
+        <div class="svc-top"><h2 class="svc-name" id="s-rp">Rogue Protocol</h2><span class="status avail">Available today</span></div>
+        <p>A wave shooter played from the platform: drones, gunships, lancers and an Overseer every fifth wave.</p>
+        <ul><li>A shield that parries bolts back, and a nova to clear the sky</li><li>A blaster in each hand in VR</li><li>Press <kbd>G</kbd> in any scene to play</li></ul>
+        <div class="links"><a href="https://spatialdesktop.thng.my/app/?play" rel="noopener">Play in your browser</a></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ DEVICES ═════════ -->
+<section class="page" data-route="/devices" aria-labelledby="h-devices">
+  <div class="wrap">
+    <div class="page-head">
+      <span class="eyebrow">Devices</span>
+      <h1 class="h2" id="h-devices">Every screen is a node.</h1>
+      <p class="lede">THNG aims to run on everything: desktops, phones, headsets, watches and devices you've jailbroken or rooted. Here's where each one stands today. A node only offers what its device can really do.</p>
+    </div>
+
+    <div class="filters" role="group" aria-label="Filter by status">
+      <button class="chip" aria-pressed="true" data-filter="all">All</button>
+      <button class="chip" aria-pressed="false" data-filter="avail">Available today</button>
+      <button class="chip" aria-pressed="false" data-filter="planned">Planned</button>
+      <button class="chip" aria-pressed="false" data-filter="community">Community-supported</button>
+    </div>
+
+    <table class="dev-table" id="devTable">
+      <thead><tr><th scope="col">Device</th><th scope="col">Status</th><th scope="col">What you get</th><th scope="col">Install</th></tr></thead>
+      <tbody>
+        <tr class="dev-group"><td colspan="4">Desktop</td></tr>
+        <tr data-s="avail"><td>Linux · Omarchy / Hyprland 0.56+</td><td><span class="status avail">Available today</span></td><td class="note">Everything: the Hyprland panel, the Windows VM and launching apps into the scene.</td><td>AppImage · .deb · source</td></tr>
+        <tr data-s="avail"><td>Linux · other Hyprland setups</td><td><span class="status avail">Available today</span></td><td class="note">Most features.</td><td>AppImage · .deb · source</td></tr>
+        <tr data-s="avail"><td>Windows 10 / 11</td><td><span class="status avail">Available today</span></td><td class="note">The whole scene, plus window panels where the OS allows capture. Not code-signed yet.</td><td>Installer</td></tr>
+        <tr data-s="avail"><td>macOS 12+</td><td><span class="status avail">Available today</span></td><td class="note">The whole scene. Universal build, not notarized yet.</td><td>Disk image</td></tr>
+        <tr data-s="planned"><td>THNG OS · bootable distro</td><td><span class="status planned">Planned</span></td><td class="note">Boots straight into a scene. Live USB, or install alongside your current OS.</td><td>ISO (not published yet)</td></tr>
+        <tr data-s="community"><td>Steam Deck · SteamOS</td><td><span class="status community">Community-supported</span></td><td class="note">The Linux build in desktop mode, without Hyprland features. Untested by maintainers.</td><td>AppImage</td></tr>
+
+        <tr class="dev-group"><td colspan="4">Headsets</td></tr>
+        <tr data-s="avail"><td>Meta Quest · Quest Browser</td><td><span class="status avail">Available today</span></td><td class="note">Real VR over WebXR. Nothing to install.</td><td>Browser</td></tr>
+        <tr data-s="avail"><td>Meta Quest · APK</td><td><span class="status avail">Available today</span></td><td class="note">An offline app that runs as a 2D window.</td><td>Sideload APK</td></tr>
+        <tr data-s="avail"><td>Other WebXR headsets</td><td><span class="status avail">Available today</span></td><td class="note">VR in any WebXR browser.</td><td>Browser</td></tr>
+
+        <tr class="dev-group"><td colspan="4">Phones &amp; tablets</td></tr>
+        <tr data-s="avail"><td>Android 7+</td><td><span class="status avail">Available today</span></td><td class="note">An offline app with the whole scene and touch controls.</td><td>APK</td></tr>
+        <tr data-s="planned"><td>iPhone · iPad</td><td><span class="status planned">Planned</span></td><td class="note">A native node app is planned.</td><td>—</td></tr>
+        <tr data-s="community"><td>Rooted Android · custom ROMs</td><td><span class="status community">Community-supported</span></td><td class="note">The standard APK, for LineageOS, GrapheneOS and similar. Not tested by maintainers.</td><td>APK</td></tr>
+        <tr data-s="community"><td>Jailbroken iOS</td><td><span class="status community">Community-supported</span></td><td class="note">Open for community ports. There's no official build.</td><td>—</td></tr>
+
+        <tr class="dev-group"><td colspan="4">Wearables</td></tr>
+        <tr data-s="planned"><td>Wear OS watches</td><td><span class="status planned">Planned</span></td><td class="note">A companion node: switch scenes, move focus between panels and see notifications.</td><td>—</td></tr>
+        <tr data-s="planned"><td>Apple Watch</td><td><span class="status planned">Planned</span></td><td class="note">The same companion features as on Wear OS.</td><td>—</td></tr>
+        <tr data-s="community"><td>Open-firmware watches</td><td><span class="status community">Community-supported</span></td><td class="note">For example AsteroidOS or PineTime. A remote-control node, open to community ports.</td><td>—</td></tr>
+
+        <tr class="dev-group"><td colspan="4">Anywhere</td></tr>
+        <tr data-s="avail"><td>Any modern browser</td><td><span class="status avail">Available today</span></td><td class="note">The whole scene. VR where WebXR is available.</td><td>spatialdesktop.thng.my/app</td></tr>
+      </tbody>
+    </table>
+    <p class="empty" id="devEmpty" hidden>No devices match this filter. <button class="btn" data-filter-reset style="margin-left:var(--s2)">Show all</button></p>
+    <p class="muted" style="margin-top:var(--s4);font-size:var(--fs-xs)">"Available today" means it ships in the current Spatial Desktop release. "Planned" means designed but not built yet. "Community-supported" means not officially tested, with PRs welcome.</p>
+  </div>
+</section>
+
+<!-- ═════════ INSTALL ═════════ -->
+<section class="page" data-route="/install" aria-labelledby="h-install">
+  <div class="wrap">
+    <div class="page-head">
+      <span class="eyebrow">Install</span>
+      <h1 class="h2" id="h-install">Three steps to space.</h1>
+      <p class="lede">Choose your device and how you want THNG on it. You'll get the exact steps.</p>
+    </div>
+
+    <div class="wizard">
+      <ol class="steps-nav" aria-label="Install progress">
+        <li id="sn-1" aria-current="step">Device</li>
+        <li id="sn-2">Method</li>
+        <li id="sn-3">Install</li>
+      </ol>
+
+      <div class="panel pad-lg">
+        <form id="wiz" novalidate>
+          <div class="wstep" data-step="1">
+            <fieldset class="opts">
+              <legend>What are you installing on?</legend>
+              <div class="opt"><input type="radio" name="device" id="d-linux" value="linux"><label for="d-linux"><strong>Linux</strong><span>Omarchy and other Hyprland setups</span></label></div>
+              <div class="opt"><input type="radio" name="device" id="d-win" value="windows"><label for="d-win"><strong>Windows</strong><span>10 or 11</span></label></div>
+              <div class="opt"><input type="radio" name="device" id="d-mac" value="mac"><label for="d-mac"><strong>macOS</strong><span>12 or later</span></label></div>
+              <div class="opt"><input type="radio" name="device" id="d-android" value="android"><label for="d-android"><strong>Android / Quest</strong><span>Phones, tablets, headsets</span></label></div>
+              <div class="opt"><input type="radio" name="device" id="d-watch" value="watch"><label for="d-watch"><strong>Smartwatch</strong><span>Companion node</span></label></div>
+              <div class="opt"><input type="radio" name="device" id="d-bare" value="bare"><label for="d-bare"><strong>Bare metal</strong><span>THNG OS distro</span></label></div>
+            </fieldset>
+          </div>
+
+          <div class="wstep" data-step="2" hidden>
+            <fieldset class="opts" id="methodOpts">
+              <legend>How do you want it?</legend>
+            </fieldset>
+          </div>
+
+          <div class="wstep result" data-step="3" hidden aria-live="polite">
+            <div class="od-stack" style="--od-gap:var(--s4)" id="resultBody"></div>
+          </div>
+
+          <p class="err" id="wizErr" role="alert"></p>
+          <div class="wiz-foot">
+            <button type="button" class="btn" id="wizBack" disabled>Back</button>
+            <button type="submit" class="btn primary" id="wizNext">Continue <svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ PRICING ═════════ -->
+<section class="page" data-route="/pricing" aria-labelledby="h-pricing">
+  <div class="wrap">
+    <div class="page-head">
+      <span class="eyebrow">Pricing</span>
+      <h1 class="h2" id="h-pricing">Everything is free. Forever.</h1>
+      <p class="lede">THNG is MIT-licensed and community-built. There are no paid tiers, trials or locked features. If it's useful to you, support the people building it.</p>
+    </div>
+
+    <div class="tiers">
+      <article class="panel pad-lg tier" aria-labelledby="tier-os">
+        <span class="eyebrow">Operating system</span>
+        <h2 class="h3" id="tier-os">THNG OS + Spatial Desktop</h2>
+        <div class="price od-nowrap">Free<small>MIT</small></div>
+        <ul>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>Every scene and layout</span></li>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>Builds for every platform</span></li>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>Self-updates on Linux &amp; Windows</span></li>
+        </ul>
+        <a class="btn primary" href="#/install">Install free</a>
+      </article>
+      <article class="panel pad-lg tier" aria-labelledby="tier-svc">
+        <span class="eyebrow">Services</span>
+        <h2 class="h3" id="tier-svc">FORG · thngPlay · Rogue Protocol</h2>
+        <div class="price od-nowrap">Free<small>built-in</small></div>
+        <ul>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>Watch and stream on thngPlay</span></li>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>Every Rogue Protocol wave</span></li>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>FORG, ships with THNG</span></li>
+        </ul>
+        <a class="btn" href="#/services">See services</a>
+      </article>
+      <article class="panel pad-lg tier" aria-labelledby="tier-node">
+        <span class="eyebrow">Companion nodes</span>
+        <h2 class="h3" id="tier-node">Watch &amp; phone nodes</h2>
+        <div class="price od-nowrap">Free<small>planned</small></div>
+        <ul>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>Scene switching from your wrist</span></li>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>Community ports welcome</span></li>
+          <li><svg width="16" height="16" aria-hidden="true"><use href="#i-check"/></svg><span>No account needed</span></li>
+        </ul>
+        <a class="btn" href="#/devices">Device status</a>
+      </article>
+    </div>
+
+    <div class="panel pad-lg support">
+      <div class="od-stack" style="--od-gap:var(--s3)">
+        <h2 class="h2">Keep the lights on in space</h2>
+        <p class="muted">Sponsorship pays for code-signing certificates, test hardware and maintainers' time. It never unlocks features.</p>
+      </div>
+      <div class="acts">
+        <a class="btn primary" href="https://github.com/sponsors/ORANGOPUS" rel="noopener"><svg width="18" height="18" aria-hidden="true"><use href="#i-heart"/></svg>Sponsor on GitHub</a>
+        <a class="btn" href="https://github.com/ORANGOPUS/thng" rel="noopener"><svg width="18" height="18" aria-hidden="true"><use href="#i-gh"/></svg>Star or contribute</a>
+      </div>
+    </div>
+
+    <div class="section faq" style="margin-top:var(--s7)">
+      <h2 class="h2">Questions</h2>
+      <div>
+        <details><summary>Will there ever be a paid version?</summary><p>No. THNG and its services are MIT-licensed. Sponsorship is optional and doesn't change what you get.</p></details>
+        <details><summary>Can I fork it, sell it or ship it on my hardware?</summary><p>Yes. The MIT license allows commercial use, modification and redistribution. Just keep the license notice.</p></details>
+        <details><summary>Why are the Windows and macOS builds unsigned?</summary><p>Signing certificates cost money. Sponsorship is the plan for getting the builds signed and notarized.</p></details>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════ SPEC ═════════ -->
+<section class="page" data-route="/spec" aria-labelledby="h-spec">
+  <div class="wrap">
+    <div class="page-head">
+      <span class="eyebrow">Spec · thng-ds-1</span>
+      <h1 class="h2" id="h-spec">How THNG is put together.</h1>
+      <p class="lede">The short version of the system and design spec. The full document is <a href="https://github.com/ORANGOPUS/thng/blob/main/SPEC.md" rel="noopener">SPEC.md</a> in the repo.</p>
+    </div>
+
+    <div class="spec-grid">
+      <nav class="toc" aria-label="Spec sections">
+        <a href="#spec-arch" data-inpage>Architecture</a>
+        <a href="#spec-caps" data-inpage>Capabilities</a>
+        <a href="#spec-input" data-inpage>Input</a>
+        <a href="#spec-color" data-inpage>Colour</a>
+        <a href="#spec-type" data-inpage>Type &amp; space</a>
+        <a href="#spec-motion" data-inpage>Motion</a>
+      </nav>
+      <div class="spec-body">
+        <section id="spec-arch">
+          <h2>Architecture</h2>
+          <p class="muted">Each device runs a <strong>node</strong>. Nodes discover each other on the local network and agree on one <strong>scene</strong>. The node that renders that scene holds the <strong>panels</strong>, and the others are inputs, mirrors or companions. <strong>Services</strong> are panel providers that every node can open.</p>
+          <div class="tbl-scroll"><table class="spec">
+            <thead><tr><th>Layer</th><th>Owns</th><th>Built on</th></tr></thead>
+            <tbody>
+              <tr><td>Node</td><td>Capability detection, discovery, updates</td><td>Electron / Capacitor shells from Spatial Desktop</td></tr>
+              <tr><td>Scene</td><td>Sky, platform, lighting, audio, layout rules</td><td>IWSDK + WebXR, shaders generated in code</td></tr>
+              <tr><td>Panel</td><td>Pixels + input passthrough</td><td>PipeWire capture, wayvnc, VNC (VMs)</td></tr>
+              <tr><td>Service</td><td>Apps: FORG, thngPlay, Spatial Desktop, Rogue Protocol</td><td>Web panels</td></tr>
+            </tbody>
+          </table></div>
+        </section>
+
+        <section id="spec-caps">
+          <h2>Capabilities, not promises</h2>
+          <p class="muted">At startup a node checks what its device can do and offers only that. The UI never shows a control the device can't use. It shows the reason instead, for example "Window capture needs Linux with Hyprland."</p>
+          <div class="tbl-scroll"><table class="spec">
+            <thead><tr><th>Capability</th><th>Needs</th></tr></thead>
+            <tbody>
+              <tr><td>Render scene</td><td>WebGL 2</td></tr>
+              <tr><td>Immersive VR</td><td>A WebXR browser and headset</td></tr>
+              <tr><td>Hyprland panel</td><td>Linux, Hyprland, wayvnc</td></tr>
+              <tr><td>Window panels</td><td>OS-level screen capture</td></tr>
+              <tr><td>Companion</td><td>A network connection to another node</td></tr>
+            </tbody>
+          </table></div>
+        </section>
+
+        <section id="spec-input">
+          <h2>Input</h2>
+          <dl class="kv">
+            <div><dt>Search</dt><dd><kbd>/</kbd> opens app search on the Hyprland panel</dd></div>
+            <div><dt>Layout</dt><dd><kbd>L</kbd> cycles arc, grid, stack</dd></div>
+            <div><dt>Scene</dt><dd><kbd>S</kbd> switches scene (planned)</dd></div>
+            <div><dt>Play</dt><dd><kbd>G</kbd> enters Arena; <kbd>Esc</kbd> leaves</dd></div>
+            <div><dt>Panels</dt><dd>Drag by the frame. Tap to bring a panel close.</dd></div>
+          </dl>
+        </section>
+
+        <section id="spec-color">
+          <h2>Colour</h2>
+          <p class="muted">The ground is dark and neutral. Cyan signals interaction and availability, and violet marks planned or secondary things. Status always comes with a text label and a shape.</p>
+          <div class="swatches">
+            <div class="sw"><i style="background:var(--bg)"></i><b>bg</b><span>#070A12</span></div>
+            <div class="sw"><i style="background:var(--surface)"></i><b>surface</b><span>#0E1422</span></div>
+            <div class="sw"><i style="background:var(--line)"></i><b>line</b><span>#24304A</span></div>
+            <div class="sw"><i style="background:var(--text)"></i><b>text</b><span>#E8ECF5</span></div>
+            <div class="sw"><i style="background:var(--muted)"></i><b>muted</b><span>#A3AEC4</span></div>
+            <div class="sw"><i style="background:var(--accent)"></i><b>accent</b><span>#5EE6D0</span></div>
+            <div class="sw"><i style="background:var(--violet)"></i><b>violet</b><span>#A58BFF</span></div>
+            <div class="sw"><i style="background:var(--warn)"></i><b>warn</b><span>#FFC46B</span></div>
+          </div>
+        </section>
+
+        <section id="spec-type">
+          <h2>Type &amp; space</h2>
+          <div class="typespec">
+            <div><span class="mono">Display</span><span style="font:400 var(--fs-xl)/1.1 var(--font-display)">Instrument Serif</span></div>
+            <div><span class="mono">Body</span><span>Inter, 16–18px, line height 1.6</span></div>
+            <div><span class="mono">Mono</span><span class="mono" style="color:var(--text);font-size:var(--fs-sm)">JetBrains Mono</span></div>
+            <div><span class="mono">Spacing</span><span>8px rhythm: 4 · 8 · 16 · 24 · 32 · 48 · 64 · 96</span></div>
+            <div><span class="mono">Radius</span><span>6px controls · 12px panels. Hairlines over shadows.</span></div>
+          </div>
+        </section>
+
+        <section id="spec-motion">
+          <h2>Motion</h2>
+          <p class="muted">Motion explains a change in state. Small interactions take 150–300ms with ease-out on enter, and exits run at about 60% of that with ease-in. Ambient motion in the scene stops when <code class="mono">prefers-reduced-motion</code> is set.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <span>THNG · The Human Node Generator · MIT · an ORANGOPUS project</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/ORANGOPUS/thng" rel="noopener">GitHub</a>
+      <a href="https://github.com/ORANGOPUS/spatial-desktop" rel="noopener">Spatial Desktop</a>
+      <a href="https://thng.my" rel="noopener">thngPlay</a>
+      <a href="#/spec">Spec</a>
+    </nav>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  /* ── router ── */
+  const pages = $$('.page');
+  const navLinks = $$('#nav a');
+  const scrollMemo = {};
+  let current = null;
+  function route() {
+    const raw = location.hash.replace(/^#/, '') || '/';
+    if (!raw.startsWith('/')) return;           // in-page anchors handled separately
+    const path = pages.some(p => p.dataset.route === raw) ? raw : '/';
+    if (current) scrollMemo[current] = window.scrollY;
+    pages.forEach(p => p.classList.toggle('active', p.dataset.route === path));
+    navLinks.forEach(a => a.getAttribute('href') === '#' + path ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
+    const changed = current !== path;
+    current = path;
+    closeMenu();
+    if (changed) {
+      window.scrollTo(0, scrollMemo[path] || 0);
+      const h = $('.page.active h1');
+      document.title = (path === '/' ? 'THNG — The Human Node Generator' : h.textContent.replace(/\.$/, '') + ' · THNG');
+      $('#main').focus({ preventScroll: true });
+    }
+  }
+  window.addEventListener('hashchange', route);
+
+  /* in-page spec anchors: scroll without breaking the route */
+  $$('[data-inpage]').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault();
+    const t = document.getElementById(a.getAttribute('href').slice(1));
+    t && t.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }));
+
+  /* ── mobile menu ── */
+  const nav = $('#nav'), menuBtn = $('#menuBtn');
+  function closeMenu() {
+    nav.classList.remove('open'); menuBtn.setAttribute('aria-expanded', 'false');
+    menuBtn.setAttribute('aria-label', 'Open menu'); menuBtn.querySelector('use').setAttribute('href', '#i-menu');
+  }
+  menuBtn.addEventListener('click', () => {
+    const open = !nav.classList.contains('open');
+    if (!open) return closeMenu();
+    nav.classList.add('open'); menuBtn.setAttribute('aria-expanded', 'true');
+    menuBtn.setAttribute('aria-label', 'Close menu'); menuBtn.querySelector('use').setAttribute('href', '#i-close');
+    nav.querySelector('a').focus();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && nav.classList.contains('open')) { closeMenu(); menuBtn.focus(); } });
+
+  /* ── toast ── */
+  const toast = $('#toast'); let tt;
+  function say(msg) { toast.textContent = msg; toast.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => toast.classList.remove('show'), 2200); }
+
+  /* ── scenes tabs ── */
+  const tabs = $$('[role="tab"]');
+  function selectTab(t, focus) {
+    tabs.forEach(x => { const on = x === t; x.setAttribute('aria-selected', on); x.tabIndex = on ? 0 : -1; $('#' + x.getAttribute('aria-controls')).hidden = !on; });
+    if (focus) t.focus();
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => selectTab(t));
+    t.addEventListener('keydown', e => {
+      const k = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      if (k) { e.preventDefault(); selectTab(tabs[(i + k + tabs.length) % tabs.length], true); }
+      if (e.key === 'Home') { e.preventDefault(); selectTab(tabs[0], true); }
+      if (e.key === 'End') { e.preventDefault(); selectTab(tabs[tabs.length - 1], true); }
+    });
+  });
+  document.addEventListener('keydown', e => {
+    if (current !== '/scenes' || e.key.toLowerCase() !== 's' || e.target.closest('input,textarea')) return;
+    const i = tabs.findIndex(t => t.getAttribute('aria-selected') === 'true');
+    const next = tabs[(i + 1) % tabs.length]; selectTab(next, true); say('Scene: ' + next.textContent);
+  });
+
+  /* ── devices filter ── */
+  const chips = $$('.chip'), rows = $$('#devTable tbody tr');
+  function filter(f) {
+    chips.forEach(c => c.setAttribute('aria-pressed', c.dataset.filter === f));
+    let shown = 0;
+    rows.forEach(r => { if (!r.dataset.s) return; const on = f === 'all' || r.dataset.s === f; r.hidden = !on; if (on) shown++; });
+    // hide group headers with no visible rows
+    rows.forEach((r, i) => {
+      if (r.dataset.s) return;
+      let j = i + 1, any = false;
+      while (rows[j] && rows[j].dataset.s) { if (!rows[j].hidden) any = true; j++; }
+      r.hidden = !any;
+    });
+    $('#devEmpty').hidden = shown > 0;
+    $('#devTable').hidden = shown === 0;
+  }
+  chips.forEach(c => c.addEventListener('click', () => filter(c.dataset.filter)));
+  $('[data-filter-reset]').addEventListener('click', () => filter('all'));
+
+  /* ── install wizard ── */
+  const REL = 'https://github.com/Cheesiq/spatial-desktop/releases/latest/download/';
+  const METHODS = {
+    linux: [
+      { id: 'appimage', name: 'AppImage', desc: 'One file, updates itself', status: 'avail',
+        steps: ['Download the AppImage.', 'Make it executable.', 'Run it. Hyprland features turn on automatically.'],
+        cmd: `curl -LO ${REL}Spatial-Desktop-linux-x86_64.AppImage\nchmod +x Spatial-Desktop-linux-x86_64.AppImage\n./Spatial-Desktop-linux-x86_64.AppImage` },
+      { id: 'deb', name: '.deb package', desc: 'Debian / Ubuntu based', status: 'avail',
+        steps: ['Download the .deb package.', 'Install it with apt.', 'Launch Spatial Desktop from your app menu.'],
+        cmd: `curl -LO ${REL}Spatial-Desktop-linux-amd64.deb\nsudo apt install ./Spatial-Desktop-linux-amd64.deb` },
+      { id: 'source', name: 'From source', desc: 'For hacking on it', status: 'avail',
+        steps: ['Needs Node.js 20.19+ or 22.12+.', 'Install wayvnc for the Hyprland panel.', 'Run the dev server.'],
+        cmd: `git clone https://github.com/Cheesiq/spatial-desktop.git\ncd spatial-desktop\nnpm install\nsudo pacman -S --needed wayvnc\nnpm run dev` }
+    ],
+    windows: [
+      { id: 'exe', name: 'Installer', desc: 'Windows 10 / 11', status: 'avail',
+        steps: ['Download the installer.', 'It isn\'t code-signed yet. In SmartScreen, choose More info → Run anyway.', 'It updates itself after that.'],
+        link: REL + 'Spatial-Desktop-win-x64-setup.exe' },
+      { id: 'web', name: 'In the browser', desc: 'Nothing to install', status: 'avail',
+        steps: ['Open the web app.', 'Add it as an app from your browser menu if you like.'], link: 'https://spatialdesktop.thng.my/app/' }
+    ],
+    mac: [
+      { id: 'dmg', name: 'Disk image', desc: 'Universal, macOS 12+', status: 'avail',
+        steps: ['Download the disk image and drag the app to Applications.', 'It isn\'t notarized yet. The first time, right-click it → Open.', 'The app tells you when an update is ready.'],
+        link: REL + 'Spatial-Desktop-mac-universal.dmg' },
+      { id: 'web', name: 'In the browser', desc: 'Nothing to install', status: 'avail',
+        steps: ['Open the web app in your browser.'], link: 'https://spatialdesktop.thng.my/app/' }
+    ],
+    android: [
+      { id: 'apk', name: 'APK', desc: 'Android 7+, rooted or not', status: 'avail',
+        steps: ['Download the APK on your device.', 'Allow installs from this source when asked.', 'On Quest, sideload it. It runs as a 2D window.'],
+        link: REL + 'Spatial-Desktop-android.apk' },
+      { id: 'webxr', name: 'WebXR in Quest Browser', desc: 'Real VR, no install', status: 'avail',
+        steps: ['Open the web app in Quest Browser.', 'Press Enter VR.'], link: 'https://spatialdesktop.thng.my/app/' }
+    ],
+    watch: [
+      { id: 'wear', name: 'Wear OS companion', desc: 'Not built yet', status: 'planned' },
+      { id: 'applewatch', name: 'Apple Watch companion', desc: 'Not built yet', status: 'planned' }
+    ],
+    bare: [
+      { id: 'iso', name: 'THNG OS live USB', desc: 'ISO not published yet', status: 'planned' }
+    ]
+  };
+  const STATUS_LABEL = { avail: 'Available today', planned: 'Planned', community: 'Community-supported' };
+  let step = 1;
+  const form = $('#wiz'), err = $('#wizErr'), back = $('#wizBack'), next = $('#wizNext');
+  const checked = n => { const el = form.querySelector(`input[name="${n}"]:checked`); return el ? el.value : ''; };
+  const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  function renderMethods() {
+    const dev = form.device.value, fs = $('#methodOpts');
+    $$('.opt', fs).forEach(n => n.remove());
+    METHODS[dev].forEach(m => {
+      const d = document.createElement('div'); d.className = 'opt';
+      d.innerHTML = `<input type="radio" name="method" id="m-${m.id}" value="${m.id}"${m.status === 'planned' ? ' disabled' : ''}>
+        <label for="m-${m.id}"><strong>${esc(m.name)}</strong><span>${esc(m.desc)}</span><span class="status ${m.status}">${STATUS_LABEL[m.status]}</span></label>`;
+      fs.appendChild(d);
+    });
+  }
+  function renderResult() {
+    const dev = form.device.value, m = METHODS[dev].find(x => x.id === checked('method')), body = $('#resultBody');
+    let html = `<div class="od-row" style="justify-content:space-between;flex-wrap:wrap"><h2 class="h2" style="font-size:var(--fs-xl)">${esc(m.name)}</h2><span class="status ${m.status}">${STATUS_LABEL[m.status]}</span></div>
+      <ol>${m.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>`;
+    if (m.cmd) html += `<div class="code-wrap"><pre class="code"><code>${esc(m.cmd)}</code><button type="button" class="btn icon copy" aria-label="Copy commands"><svg width="18" height="18" aria-hidden="true"><use href="#i-copy"/></svg></button></pre></div>`;
+    if (m.link) html += `<a class="btn primary" href="${m.link}" rel="noopener">${m.link.includes('/app/') ? 'Open the web app' : 'Download'} <svg width="18" height="18" aria-hidden="true"><use href="#i-arrow"/></svg></a>`;
+    html += `<p class="muted" style="font-size:var(--fs-xs)">These builds come from the latest Spatial Desktop release. THNG OS ships on top of it.</p>`;
+    body.innerHTML = html;
+    const cp = $('.copy', body);
+    cp && cp.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(m.cmd); cp.querySelector('use').setAttribute('href', '#i-check'); say('Copied to clipboard'); setTimeout(() => cp.querySelector('use').setAttribute('href', '#i-copy'), 1600); }
+      catch { say('Copy failed. Select the text and copy it manually.'); }
+    });
+  }
+  function show(n) {
+    step = n;
+    $$('.wstep', form).forEach(s => s.hidden = +s.dataset.step !== n);
+    [1, 2, 3].forEach(i => { const li = $('#sn-' + i); li.classList.toggle('done', i < n); i === n ? li.setAttribute('aria-current', 'step') : li.removeAttribute('aria-current'); });
+    back.disabled = n === 1;
+    next.hidden = n === 3;
+    err.textContent = '';
+    const first = $(`.wstep[data-step="${n}"] input:not(:disabled), .wstep[data-step="${n}"] h2`, form);
+    if (first) { if (first.tagName === 'H2') first.tabIndex = -1; first.focus(); }
+  }
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    if (step === 1) {
+      if (!form.device.value) { err.textContent = 'Choose a device to continue. Not sure? "Linux" gets every feature.'; return; }
+      renderMethods(); show(2);
+      if (!$('#methodOpts input:not(:disabled)')) err.textContent = 'Nothing here is installable yet. These are planned. Go back to pick another device, or follow progress on GitHub.';
+    } else if (step === 2) {
+      if (!checked('method')) { if (!err.textContent) err.textContent = 'Choose an install method to continue.'; return; }
+      renderResult(); show(3);
+    }
+  });
+  back.addEventListener('click', () => show(step - 1));
+
+  route();
+})();
+</script>
+</body>
+</html>
