@@ -1,8 +1,8 @@
 <div align="center">
 
-# THNG
+# SpatialOS
 
-**The Human Node Generator: a free, open-source spatial operating system.**
+**SpatialOS a free, open-source spatial operating system.**
 
 Your windows, streams and games as panels in space, on a monitor, in a headset or on your wrist. Built on [Spatial Desktop](https://github.com/ORANGOPUS/spatial-desktop).
 
